@@ -1,6 +1,6 @@
-# SA-Scientist: Self-Adaptive Agent Teams for Scientific Research
+# SI-Scientist: Self-Improving Agent Teams for Scientific Research
 
-SA-Scientist is a multi-agent LLM team for algorithm discovery, based on:
+SI-Scientist is a multi-agent LLM team for algorithm discovery, based on:
 
 > Tolic, D., Antulov-Fantulin, N. & Kopriva, I.
 > A nonlinear orthogonal non-negative matrix factorization approach to subspace clustering.
@@ -8,7 +8,7 @@ SA-Scientist is a multi-agent LLM team for algorithm discovery, based on:
 > [doi:10.1016/j.patcog.2018.04.029](https://doi.org/10.1016/j.patcog.2018.04.029)
 
 ---
-![SA-Scientist architecture](docs/image.svg)
+![SI-Scientist architecture](docs/image.svg)
 
 ## Agent architecture
 
