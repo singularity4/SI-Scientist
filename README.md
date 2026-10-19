@@ -1,6 +1,6 @@
-# MultiScientist-NMF
+# SA-Scientist: Self-Adaptive Agent Teams for Scientific Research
 
-MultiScientist-NMF is a multi-agent LLM team for algorithm discovery, based on:
+SA-Scientist is a multi-agent LLM team for algorithm discovery, based on:
 
 > Tolic, D., Antulov-Fantulin, N. & Kopriva, I.
 > A nonlinear orthogonal non-negative matrix factorization approach to subspace clustering.
@@ -8,7 +8,7 @@ MultiScientist-NMF is a multi-agent LLM team for algorithm discovery, based on:
 > [doi:10.1016/j.patcog.2018.04.029](https://doi.org/10.1016/j.patcog.2018.04.029)
 
 ---
-![MultiScientist-NMF architecture](docs/image.svg)
+![SA-Scientist architecture](docs/image.svg)
 
 ## Agent architecture
 
