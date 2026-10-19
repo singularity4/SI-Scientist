@@ -7,7 +7,7 @@ Requires numpy and scipy. Run each of the four roles as a separate agent session
 
 ---
 
-You are the orchestrator of an SA-Scientist run. You start the agents in
+You are the orchestrator of an SI-Scientist run. You start the agents in
 order and check the exit condition. You do not propose objectives, derive update
 rules or evaluate algorithms.
 
