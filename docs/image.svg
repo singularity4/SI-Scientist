@@ -10,8 +10,8 @@
   </defs>
   <rect width="1800" height="1000" fill="#FAF8F4"/>
 
-  <text x="60" y="72" font-size="47" font-weight="700" fill="#171223" letter-spacing="-1">MultiScientist-NMF</text>
-  <text x="60" y="116" font-size="23" fill="#6B6478">Multi-agent LLM team for algorithm discovery in nonlinear orthogonal non-negative matrix factorization.</text>
+  <text x="60" y="72" font-size="47" font-weight="700" fill="#171223" letter-spacing="-1">SA-Scientist</text>
+  <text x="60" y="116" font-size="23" fill="#6B6478">Self-Adaptive Agent Teams for Scientific Research</text>
 
   <rect x="60" y="200" width="290" height="330" rx="18" fill="#FFFFFF" stroke="#E8E3DC" stroke-width="1.5"/>
   <text x="90" y="243" font-size="15" font-weight="700" fill="#6B4BD6" letter-spacing="1.6">THE SETUP</text>
