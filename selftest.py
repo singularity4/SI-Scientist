@@ -338,7 +338,7 @@ def a_failed_criterion_refuses_promotion():
     return f"caught on {violations}/8 seeds; refused with '{reason}'"
 
 
-print("SA-Scientist selftest\n")
+print("SI-Scientist selftest\n")
 check("scorer imports", scorer_imports)
 check("TASK.md parses", task_parses)
 check("data sets load", datasets_load)
