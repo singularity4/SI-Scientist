@@ -120,7 +120,7 @@ def build_run_directory(run_root: Path, task_dir: Path, profile_path: Path) -> N
 def main() -> None:
     """Parse arguments, resolve the task and profile, build the run directory."""
     parser = argparse.ArgumentParser(
-        description="Create a fresh MultiScientist-NMF run directory."
+        description="Create a fresh SA-Scientist run directory."
     )
     parser.add_argument("name", nargs="?", default=None, help="run name")
     parser.add_argument(
