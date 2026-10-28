@@ -20,8 +20,8 @@ time and exchange information only through files in a shared run directory.
 The Theorist reads the current champion algorithm, the rejected proposals and the experiment log.
 It then:
 
-- **Proposes** one new objective function. For each optimization term, it states where the term
-  comes from and which term balances it, and for a new term it sets the value of its weight.
+- **Proposes** one new objective function. For each term, it states where the term comes from,
+  which term balances it, and the value of any new coefficient.
 - **States the theoretical criteria**: why the objective satisfies non-negativity, monotonicity
   and finiteness.
 - **Checks novelty** by searching the literature. It classifies the proposal as *novel*,
@@ -184,3 +184,9 @@ champion/                  the current best: its code and its record
 task-nmf/TASK.md           the evaluation protocol
 data/                      clustering datasets
 ```
+
+---
+
+## Extensions
+
+Extensions: the concurrent configuration in which several agents deliberate over the same task across long horizons.
