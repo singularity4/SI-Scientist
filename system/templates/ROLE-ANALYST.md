@@ -6,7 +6,7 @@ not run anything.
 
 ## Routing
 
-You have work only if a proposal has neither a derivation nor a dead-end record.
+You have work only if a proposal has neither a derivation nor a rejection record.
 
 ```python
 proposal = state.pending_proposal()
@@ -120,5 +120,5 @@ state.append_derivation(DerivationRecord(
 
 - Proposing or changing the objective.
 - Implementing or running the rules.
-- Judging the result. You state what the mathematics predicts, and the run tests
-  it.
+- Judging the result. The derivation states what should hold in theory, and the
+  evaluation tests it.
