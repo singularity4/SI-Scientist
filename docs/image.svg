@@ -21,7 +21,7 @@
   </g>
   <text x="90" y="435" font-size="27" font-weight="700" fill="#171223">The task</text>
   <text x="90" y="468" font-size="16" fill="#6B6478">
-    <tspan x="90" dy="0">The data sets, the metric</tspan>
+    <tspan x="90" dy="0">The datasets, the metric</tspan>
     <tspan x="90" dy="23">and the protocol, fixed</tspan>
     <tspan x="90" dy="23">by the scientist</tspan>
   </text>
@@ -77,7 +77,7 @@
   <text x="1570" y="659" font-size="15" font-weight="700" fill="#C3B2F0" text-anchor="end" letter-spacing="1.6">THE RESULT</text>
   <text x="1570" y="700" font-size="27" font-weight="700" fill="#FFFFFF" text-anchor="end">New algorithm champion</text>
   <text x="1570" y="729" font-size="16" fill="#BFAEEC" text-anchor="end">Promoted only if every criterion holds</text>
-  <text x="1570" y="753" font-size="16" fill="#BFAEEC" text-anchor="end">and the improvement is significant</text>
+  <text x="1570" y="753" font-size="16" fill="#BFAEEC" text-anchor="end">and the average accuracy is higher</text>
 
   <g stroke="#B9A9E8" stroke-width="2.6" stroke-dasharray="7 8" fill="none">
     <path d="M560 548 V 826" marker-end="url(#arrowSm)"/>
