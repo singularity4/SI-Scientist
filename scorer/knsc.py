@@ -57,7 +57,7 @@ def accuracy(labels_true, labels_predicted):
     Clustering accuracy under the optimal assignment of cluster indices to
     ground-truth labels.
 
-    Cluster indices are arbitrary, so the assignment that maximises agreement is
+    Cluster indices are arbitrary, so the assignment that maximizes agreement is
     found first, with the Hungarian algorithm.
 
     Returns a percentage.
@@ -79,6 +79,6 @@ def accuracy(labels_true, labels_predicted):
     for predicted, true in zip(labels_predicted, labels_true):
         contingency[row_of_predicted[predicted], column_of_true[true]] += 1
 
-    # Maximise agreement, so minimise its negative.
+    # Maximize agreement, so minimize its negative.
     rows, columns = linear_sum_assignment(-contingency)
     return 100.0 * contingency[rows, columns].sum() / n_points
