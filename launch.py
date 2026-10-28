@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-Creates a run directory for one task. A run directory is self-contained: it holds its own copy of the system files,
-the scorer, the data sets, the initial champion, the task, one instruction file per agent, and the shared-state folders
-the agents read and write. The template directory is not modified, so several runs can be started from it without
-interfering.
+Creates a run directory for one task. A run directory is self-contained: it holds
+its own copy of the system files, the scorer, the datasets, the initial champion,
+the task, one instruction file per agent, and the shared-state folders the agents
+read and write. The template directory is not modified, so several runs can be
+started from it without interfering.
+
+The agent team has four agents, Theorist, Analyst, Evaluator and Observer,
+which run one at a time.
 
 Usage:
     python3 launch.py                    # name from task + timestamp
@@ -40,7 +44,6 @@ ROLE_FILES = {
     "evaluator": "ROLE-EVALUATOR.md",
     "observer": "ROLE-OBSERVER.md",
 }
-
 
 def find_task_profile(task_dir: Path) -> Path:
     """
@@ -88,7 +91,7 @@ def build_run_directory(run_root: Path, task_dir: Path, profile_path: Path) -> N
     # Copied to a fixed name, so agents need not know the task directory name.
     shutil.copytree(task_dir, run_root / "task")
 
-    # Data sets. scorer/datasets.py resolves names against <run>/data/.
+    # Datasets. scorer/datasets.py resolves names against <run>/data/.
     data_dir = TEMPLATE_DIR / "data"
     if data_dir.exists():
         shutil.copytree(data_dir, run_root / "data")
@@ -114,7 +117,7 @@ def build_run_directory(run_root: Path, task_dir: Path, profile_path: Path) -> N
     sys.path.insert(0, str(run_root))
     from system.helper import FolderState
 
-    FolderState(run_root).initialise()
+    FolderState(run_root).initialize()
 
 
 def main() -> None:
@@ -146,6 +149,8 @@ def main() -> None:
     )
     out_dir = Path(arguments.output_dir) if arguments.output_dir else TEMPLATE_DIR.parent
     run_root = out_dir / name
+    if run_root.exists():
+        raise SystemExit(f"Run directory already exists: {run_root}")
 
     build_run_directory(run_root, task_dir, profile_path)
 
