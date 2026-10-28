@@ -17,20 +17,20 @@ if state.pending_derivation() is not None:
 ```
 
 `pending_proposal` returns a proposal that has neither a derivation nor a
-dead-end record. `pending_derivation` returns a derivation that has neither an
-experiment nor a dead-end record. Records are never deleted from the logs.
+rejection record. `pending_derivation` returns a derivation that has neither an
+experiment nor a rejection record. Records are never deleted from the logs.
 
 If you have work, follow steps 1 to 4 below.
 
 ## Bounds
 
-**The framework is fixed.** The factorisation is carried out in a nonlinear
+**The framework is fixed.** The factorization is carried out in a nonlinear
 feature space. The basis is restricted to W = Φ(X)F, so the feature map Φ(X)
 never has to be computed. Every proposal must be expressible through the kernel
 matrix K = Φᵀ(X)Φ(X). A proposal that requires Φ(X) itself is outside the scope
 of this task.
 
-**The evaluation is fixed.** The data sets, the accuracy metric, the number of
+**The evaluation is fixed.** The datasets, the accuracy metric, the number of
 restarts and the kernel-width grids are defined in `TASK.md`. Do not change them,
 and do not propose a method that requires a different metric.
 
@@ -46,16 +46,16 @@ Read all files in `champion/`: the objective, its derivation and its code. The
 derivation shows which modelling choices were made, and therefore which ones
 could be changed. The champion record does not contain accuracy values.
 
-Then read the dead-end log. Each record states which proposal was rejected and
+Then read the rejection log. Each record states which proposal was rejected and
 why. Do not repeat a rejected proposal unless you can explain how your version
 differs and why the earlier reason for rejection does not apply.
 
 Read `logs/experiments.jsonl` for the accuracy that each evaluated proposal
-reached on each data set. The initial champion has no experiment record. Do not
+reached on each dataset. The initial champion has no experiment record. Do not
 estimate its accuracy. The Evaluator measures the champion again, from the same
-initialisations, each time a proposal is compared with it.
+initializations, each time a proposal is compared with it.
 
-If you see no direction that the dead-end log does not already exclude, do not
+If you see no direction that the rejection log does not already exclude, do not
 propose. Record a session with the action `"declined"` (HEARTBEAT Part 3) and
 exit. The orchestrator uses this record to end the run.
 
@@ -63,16 +63,22 @@ exit. The orchestrator uses this record to end the run.
 
 Prepare the following, and keep it for step 4.
 
-**The objective.** Write it in full as a minimisation problem with its
+**The objective.** Write it in full as a minimization problem with its
 constraints. Name every term and state its role. If a term is taken unchanged
 from the champion, say so.
 
 **What changed and why.** State which part of the champion's objective you
-replace or extend, and why the change should improve accuracy on these data
-sets. Explain the mechanism. Naming a technique is not a sufficient reason.
+replace or extend, and why the change should improve accuracy on these
+datasets. Explain the mechanism. Naming a technique is not a sufficient reason.
 
 **The theory.** For each term, state the theory it comes from and which term or
 constraint balances it.
+
+**The theoretical criteria.** The objective must satisfy the three theoretical
+criteria: non-negativity (the factor matrices stay non-negative), monotonicity
+(the objective does not increase from one iteration to the next) and finiteness
+(no value becomes infinite or NaN). State why your objective satisfies each of
+them.
 
 **The coefficients.** A new term introduces a new coefficient. `TASK.md` defines
 only the protocol, so you set the value of this coefficient. State the value and
@@ -96,10 +102,8 @@ Then classify the proposal:
   the citation entry of the closest work. Adapting a known idea to a new setting
   is a valid contribution, but it must be described as such.
 
-Not finding a similar paper is weak evidence, because the NMF literature is large
-and similar methods are easy to miss. A "novel" classification is only as
-reliable as the search behind it. Record all queries, so the classification can
-be checked.
+The NMF literature is large, so not finding a similar paper is weak evidence of
+novelty. Record all search queries so that the classification can be checked.
 
 ## 4. Record the proposal
 
@@ -112,7 +116,7 @@ state.append_proposal(ObjectiveProposal(
     proposal_id=proposal_id(objective),
     objective=objective,
     changed="<what this replaces in the champion, and why it should help here>",
-    theory="<what each term comes from, and what balances it>",
+    theory="<what each term comes from, what balances it, and why the criteria hold>",
     coefficients={"<name>": <value>},   # the coefficients of the new terms
     falsified_by="<the result that would show the reasoning was wrong>",
     novelty="<novel, published or adjacent>",
@@ -122,11 +126,11 @@ state.append_proposal(ObjectiveProposal(
 ))
 ```
 
-If the proposal is published, also add a dead-end record with the citation. The
+If the proposal is published, also add a rejection record with the citation. The
 proposal is then not derived:
 
 ```python
-state.append_dead_end(DeadEndRecord(
+state.append_rejection(RejectionRecord(
     proposal_id=proposal_id(objective), cause="published",
     detail="<citation and where it appears>", agent=AGENT_NAME,
 ))
