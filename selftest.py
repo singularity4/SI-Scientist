@@ -5,7 +5,7 @@ Tests the code before a run.
 Three checks test the environment. Five checks test that the protocol is
 implemented as specified and that the scorer rejects invalid rules.
 
-The most important check is `champion is invariant to reparameterisation`. It
+The most important check is `champion is invariant to reparameterization`. It
 detects a misplaced constant factor in the update rules.
 
     python3 selftest.py          # -v for tracebacks
@@ -22,7 +22,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-# Every check uses this data set, so no check depends on data that is not
+# Every check uses this dataset, so no check depends on data that is not
 # included in the repository.
 TEST_DATASET = "synthetic"
 
@@ -59,8 +59,8 @@ def fixture(sigma=5.0):
 
     champion = load_champion()
     X, labels_true, n_clusters = datasets.load(TEST_DATASET)
-    ctx = _context(gausskernel(X, X, sigma), champion.PARAMS)
-    return champion, X, labels_true, _blocks_for(n_clusters, X.shape[1], None), ctx
+    context = _context(gausskernel(X, X, sigma), champion.PARAMS)
+    return champion, X, labels_true, _blocks_for(n_clusters, X.shape[1], None), context
 
 
 # ---------------------------------------------------------------------------
@@ -88,12 +88,12 @@ def task_parses():
         f"sigma_grid parsed as {grid!r}, not a [start, stop, step] list. An "
         "inline mapping containing a list does not parse; use nested blocks."
     )
-    return f"{len(meta['datasets'])} data sets, {meta['protocol']['n_restarts']} restarts"
+    return f"{len(meta['datasets'])} datasets, {meta['protocol']['n_restarts']} restarts"
 
 
 def datasets_load():
     """
-    Every data set declared in TASK.md must load, have the declared number of
+    Every dataset declared in TASK.md must load, have the declared number of
     clusters, and give the same data when loaded twice. Otherwise a data error
     would appear only in the Evaluator's first full run.
     """
@@ -151,23 +151,23 @@ def protocol_follows_the_specification():
         selection, _holdout_split(labels_true, HOLDOUT_SEED)[0]
     ), "the split is not reproducible"
 
-    _, _, _, _, ctx = fixture()
-    assert ctx["A"].sum() > 0, "the affinity graph is empty"
-    assert np.allclose(np.diag(ctx["D"]), ctx["A"].sum(1)), (
+    _, _, _, _, context = fixture()
+    assert context["A"].sum() > 0, "the affinity graph is empty"
+    assert np.allclose(np.diag(context["D"]), context["A"].sum(1)), (
         "D is not the degree matrix of A"
     )
     return "kernel, stratified hold-out, affinity graph"
 
 
-def champion_is_invariant_to_reparameterisation():
+def champion_is_invariant_to_reparameterization():
     """
     The factor two in the kernel width and the factor two on the orthogonality
     terms can both be absorbed into the parameters. This gives an algebraically
     identical algorithm,
 
-        champion(sigma, mu)  ==  absorbed(sig = sigma / sqrt(2), mu = 2 mu),
+        champion(sigma, mu)  ==  absorbed(sigma_absorbed = sigma / sqrt(2), mu = 2 mu),
 
-    so both forms must give the same factors from the same initialisation. A
+    so both forms must give the same factors from the same initialization. A
     misplaced factor in the update rules breaks this identity.
     """
     from scorer import datasets
@@ -178,11 +178,11 @@ def champion_is_invariant_to_reparameterisation():
     X, labels_true, n_clusters = datasets.load(TEST_DATASET)
     n_points = X.shape[1]
 
-    sig, alpha, mu_absorbed = 5.0, 10.0, 100.0
+    sigma_absorbed, alpha, mu_absorbed = 5.0, 10.0, 100.0
     squared_norms = np.sum(X ** 2, axis=0)
     kernel = np.exp(
         -(squared_norms[:, None] - 2 * (X.T @ X) + squared_norms[None, :])
-        / (2 * sig ** 2)
+        / (2 * sigma_absorbed ** 2)
     )
 
     def absorbed_rcut(H, F, n_iter=300):
@@ -195,7 +195,7 @@ def champion_is_invariant_to_reparameterisation():
             F = F * (K @ H.T) / (K @ F @ H @ H.T)
         return H
 
-    ctx = {"K": kernel, "alpha": alpha, "mu": mu_absorbed / 2}
+    context = {"K": kernel, "alpha": alpha, "mu": mu_absorbed / 2}
     largest_difference = 0.0
     for seed in range(4):
         rng = np.random.default_rng(seed)
@@ -206,7 +206,7 @@ def champion_is_invariant_to_reparameterisation():
 
         state = {"H": H_start.copy(), "F": F_start.copy()}
         for _ in range(300):
-            state = champion.update_rcut(state, ctx)
+            state = champion.update_rcut(state, context)
 
         largest_difference = max(
             largest_difference, float(np.max(np.abs(state["H"] - H_absorbed)))
@@ -231,10 +231,10 @@ def champion_objective_decreases():
     """
     from scorer.run_algorithm import run_once
 
-    champion, _, labels_true, blocks, ctx = fixture()
+    champion, _, labels_true, blocks, context = fixture()
     for seed in range(8):
         run = run_once(
-            champion.UPDATE, champion.OBJECTIVE, ctx, blocks, labels_true, seed=seed
+            champion.UPDATE, champion.OBJECTIVE, context, blocks, labels_true, seed=seed
         )
         assert run.checks["monotone"], f"the objective increased on seed {seed}"
     return "monotone on 8/8 seeds"
@@ -251,14 +251,14 @@ def declarations_reach_the_algorithm():
 
     seen: dict[str, float] = {}
 
-    def update(state, ctx):
-        seen.update({name: ctx.get(name) for name in ("alpha", "mu", "nu")})
+    def update(state, context):
+        seen.update({name: context.get(name) for name in ("alpha", "mu", "nu")})
         H, F = state["H"], state["F"]
-        H = H * (F.T @ ctx["K"]) / np.maximum(F.T @ ctx["K"] @ F @ H, EPS)
+        H = H * (F.T @ context["K"]) / np.maximum(F.T @ context["K"] @ F @ H, EPS)
         return {"H": H, "F": F}
 
-    def objective(state, ctx):
-        return float(np.trace(ctx["K"]))
+    def objective(state, context):
+        return float(np.trace(context["K"]))
 
     meta = task_meta()
     meta = {**meta, "protocol": {**meta["protocol"], "screen_restarts": 2}}
@@ -290,12 +290,12 @@ def a_failed_criterion_refuses_promotion():
     from scorer.knsc import EPS
     from scorer.run_algorithm import DatasetResult, promotes, run_once
 
-    _, _, labels_true, blocks, base_ctx = fixture()
-    ctx = {**base_ctx, "lambda_F": 1.0}
+    _, _, labels_true, blocks, base_context = fixture()
+    context = {**base_context, "lambda_F": 1.0}
 
-    def update(state, ctx):
+    def update(state, context):
         H, F = state["H"], state["F"]
-        K, alpha, mu, lambda_F = ctx["K"], ctx["alpha"], ctx["mu"], ctx["lambda_F"]
+        K, alpha, mu, lambda_F = context["K"], context["alpha"], context["mu"], context["lambda_F"]
         H = H * (alpha * (F.T @ K) + 2 * mu * H) / np.maximum(
             alpha * (F.T @ K @ F @ H) + 2 * mu * (H @ H.T) @ H, EPS
         )
@@ -304,9 +304,9 @@ def a_failed_criterion_refuses_promotion():
         )
         return {"H": H, "F": F}
 
-    def objective(state, ctx):
+    def objective(state, context):
         H, F = state["H"], state["F"]
-        K, alpha, mu, lambda_F = ctx["K"], ctx["alpha"], ctx["mu"], ctx["lambda_F"]
+        K, alpha, mu, lambda_F = context["K"], context["alpha"], context["mu"], context["lambda_F"]
         fidelity = (
             np.trace(K) - 2 * np.trace(H.T @ F.T @ K) + np.trace(H.T @ F.T @ K @ F @ H)
         )
@@ -314,24 +314,23 @@ def a_failed_criterion_refuses_promotion():
         return float(alpha * fidelity + mu * orthogonality + lambda_F * np.abs(F).sum())
 
     violations = sum(
-        not run_once(update, objective, ctx, blocks, labels_true, seed=seed)
+        not run_once(update, objective, context, blocks, labels_true, seed=seed)
         .checks["monotone"]
         for seed in range(8)
     )
     assert violations > 0, "a rule with no convergence argument satisfied monotonicity"
 
-    # A result with this failure and a large, significant improvement in accuracy.
-    # It is constructed rather than computed, because the test concerns the
-    # promotion rule, not the numbers.
+    # A result with this failure and a large improvement in accuracy. It is
+    # constructed rather than computed, because the test concerns the promotion
+    # rule, not the numbers.
     result = DatasetResult(
         dataset=TEST_DATASET, sigma=5.0, accuracy_mean=64.4, accuracy_sd=5.0,
         n_restarts=32, n_iter_mean=24.0,
         checks={"finite": 32, "nonneg": 32, "monotone": 3},
-        paired={"champion_mean": 58.5, "delta_mean": 5.9, "delta_sd": 6.1,
-                "p_value": 3e-8},
+        paired={"champion_mean": 58.5, "delta_mean": 5.9, "delta_sd": 6.1},
     )
     promoted, reason = promotes(
-        {"screened": "passed", "_results": {TEST_DATASET: result}, "n_restarts": 32}
+        {"_results": {TEST_DATASET: result}, "n_restarts": 32}
     )
     assert not promoted, "a proposal failing monotonicity promoted"
     assert "monotone" in reason, f"the reason does not name the criterion: {reason}"
@@ -341,10 +340,10 @@ def a_failed_criterion_refuses_promotion():
 print("SI-Scientist selftest\n")
 check("scorer imports", scorer_imports)
 check("TASK.md parses", task_parses)
-check("data sets load", datasets_load)
+check("datasets load", datasets_load)
 check("protocol follows the specification", protocol_follows_the_specification)
-check("champion is invariant to reparameterisation",
-      champion_is_invariant_to_reparameterisation)
+check("champion is invariant to reparameterization",
+      champion_is_invariant_to_reparameterization)
 check("champion objective decreases", champion_objective_decreases)
 check("declarations reach the algorithm", declarations_reach_the_algorithm)
 check("a failed criterion refuses promotion", a_failed_criterion_refuses_promotion)
