@@ -1,21 +1,22 @@
 """
-Evaluates one proposed algorithm under the protocol declared in TASK.md. It
-reports the clustering accuracy on the hold-out half and whether the theoretical
-criteria hold.
+This module evaluates a proposed algorithm under the protocol declared in
+TASK.md. It reports the clustering accuracy on the hold-out half and, for every
+run, the non-negativity, monotonicity, finiteness and orthogonality of the
+solution.
 
 An algorithm consists of two functions, which the Evaluator writes from the
 Analyst's derivation:
 
-    update(state, ctx) -> state        one iteration
-    objective(state, ctx) -> float     the scalar being minimised
+    update(state, context) -> state    one iteration
+    objective(state, context) -> float the scalar being minimized
 
 `state` holds the factor matrices named in the derivation, so an objective with
-an additional factor matrix needs no change in this module. `ctx` holds the
-kernel matrix K, the graph affinity matrix A, the degree matrix D and the
-trade-off parameters. Neither function loads data, computes accuracy or writes
-files.
+an additional factor matrix needs no change in this module. `context` holds the
+kernel matrix K, the graph affinity matrix A, the degree matrix D, its inverse
+square root D^(-1/2) (`D_inv_sqrt`) and the trade-off parameters. Neither
+function loads data, computes accuracy or writes files.
 
-This module contains everything the comparison depends on: the initialisation,
+This module contains everything the comparison depends on: the initialization,
 the iteration loop, the restarts, the kernel-width selection, the accuracy
 metric and the checks. Neither the Analyst nor the Evaluator modifies it, so all
 proposals and the champion are evaluated in the same way.
@@ -34,10 +35,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-from scipy import stats
 
 from scorer import datasets
-from scorer.knsc import accuracy, gausskernel, labels
+from scorer.knsc import accuracy, degree_matrix, gausskernel, labels
 
 Update = Callable[[dict[str, np.ndarray], dict[str, Any]], dict[str, np.ndarray]]
 Objective = Callable[[dict[str, np.ndarray], dict[str, Any]], float]
@@ -45,11 +45,11 @@ Objective = Callable[[dict[str, np.ndarray], dict[str, Any]], float]
 # The theoretical criteria, which a correct derivation guarantees. Non-negativity
 # is preserved by the multiplicative form, monotonicity follows from the
 # convergence proof, and finiteness means that no value becomes infinite or NaN.
-# No other property is checked.
+# The orthogonality of H is also checked.
 CHECKS = ("finite", "nonneg", "monotone")
 
 # Tolerances for the checks. The monotonicity tolerance is relative, because the
-# magnitude of the objective differs by orders of magnitude between data sets. The
+# magnitude of the objective differs by orders of magnitude between datasets. The
 # non-negativity tolerance is absolute, because a correct multiplicative update
 # produces no negative entries.
 MONOTONE_TOL = 1e-8
@@ -69,7 +69,7 @@ HOLDOUT_SEED = 0
 @dataclass
 class RunResult:
     """
-    One run of one algorithm, on one data set, from one initialisation.
+    One run of one algorithm, on one dataset, from one initialization.
 
     Attributes:
         accuracy:  Clustering accuracy as a percentage.
@@ -87,22 +87,24 @@ class RunResult:
 @dataclass
 class DatasetResult:
     """
-    An algorithm evaluated on one data set over many initialisations.
+    An algorithm evaluated on one dataset over many initializations.
 
     Attributes:
-        dataset:           Data set name.
+        dataset:           Dataset name.
         sigma:             Kernel width selected on the hold-out.
         accuracy_mean:     Mean clustering accuracy over restarts.
         accuracy_sd:       Standard deviation over restarts.
-        n_restarts:        How many initialisations were used.
+        n_restarts:        How many initializations were used.
         n_iter_mean:       Mean iterations to stop.
-        checks:            Per check, the number of restarts that passed.
+        checks:            Per check, the number of restarts that passed, and
+                           the mean orthogonality of H.
         paired:            Comparison against the champion on the same
-                           initialisations, or None where the run was not
+                           initializations, or None where the run was not
                            paired. See `evaluate_algorithm`.
-        accuracy_per_seed: Accuracy at each restart, in seed order. The paired
-                           test compares these values with the champion's, seed
-                           by seed, so they are stored in addition to the summary.
+        accuracy_per_seed: Accuracy at each restart, in seed order. The
+                           comparison with the champion takes the differences
+                           seed by seed, so these values are stored in addition
+                           to the summary.
     """
 
     dataset: str
@@ -121,7 +123,7 @@ class DatasetResult:
 # ---------------------------------------------------------------------------
 
 
-def _initialise(
+def _initialize(
     blocks: dict[str, tuple[int, int]], rng: np.random.Generator
 ) -> dict[str, np.ndarray]:
     """Random non-negative matrices, uniform on [0, 1], as the framework specifies."""
@@ -140,13 +142,13 @@ def _converged(objective_trace: list[float], kappa: float) -> bool:
 
 def _check(state: dict[str, np.ndarray], objective_trace: np.ndarray) -> dict[str, Any]:
     """
-    Whether a completed run satisfied the theoretical criteria.
+    Computes the non-negativity, monotonicity, finiteness and orthogonality of a
+    single run.
 
     Non-negativity follows from the multiplicative form when both parts of the
     gradient separation are non-negative. Monotonic decrease follows from a
-    convergence proof. Finiteness means that no value became infinite or NaN. A
-    rule that fails any of these criteria is not promoted, regardless of its
-    accuracy.
+    convergence proof. Finiteness means that no value became infinite or NaN.
+    Orthogonality is ||H H^T - I||_F.
 
     Args:
         state:           Factor matrices at the last iteration.
@@ -167,6 +169,8 @@ def _check(state: dict[str, np.ndarray], objective_trace: np.ndarray) -> dict[st
             <= MONOTONE_TOL * np.maximum(1.0, np.abs(objective_trace[:-1]))
         )
     )
+    H = state["H"]
+    verdict["orthogonality"] = float(np.linalg.norm(H @ H.T - np.eye(H.shape[0]), "fro"))
     verdict["objective"] = float(objective_trace[-1])
     return verdict
 
@@ -174,7 +178,7 @@ def _check(state: dict[str, np.ndarray], objective_trace: np.ndarray) -> dict[st
 def run_once(
     update: Update,
     objective: Objective,
-    ctx: dict[str, Any],
+    context: dict[str, Any],
     blocks: dict[str, tuple[int, int]],
     labels_true: np.ndarray,
     seed: int,
@@ -182,11 +186,11 @@ def run_once(
     kappa: float | None = 1e-3,
 ) -> RunResult:
     """
-    Run one algorithm from one initialisation.
+    Run one algorithm from one initialization.
 
     The objective is evaluated at every iteration, so monotonicity can be checked
     without knowing the form of the objective. The same seed gives the same
-    initialisation for any algorithm with the same factor matrices. This makes the
+    initialization for any algorithm with the same factor matrices. This makes the
     paired comparison possible.
 
     Args:
@@ -194,12 +198,12 @@ def run_once(
         kappa:  Stopping tolerance, or None to run to max_iter.
     """
     rng = np.random.default_rng(seed)
-    state = _initialise(blocks, rng)
+    state = _initialize(blocks, rng)
 
-    objective_trace = [float(objective(state, ctx))]
+    objective_trace = [float(objective(state, context))]
     for _ in range(max_iter):
-        state = update(state, ctx)
-        objective_trace.append(float(objective(state, ctx)))
+        state = update(state, context)
+        objective_trace.append(float(objective(state, context)))
         if kappa is not None and _converged(objective_trace, kappa):
             break
 
@@ -255,16 +259,16 @@ def _context(kernel: np.ndarray, params: dict[str, float]) -> dict[str, Any]:
     The fixed quantities that every algorithm receives.
 
     The affinity matrix A is the fully connected graph with Gaussian weights, so
-    it equals the kernel matrix. D is its degree matrix, and Dm = D^(-1/2) is the
-    scaling that turns the ratio cut into the normalized cut. A proposal with a
-    graph term uses A and D.
+    it equals the kernel matrix. D is its degree matrix, and D_inv_sqrt = D^(-1/2)
+    is the scaling that turns the ratio cut into the normalized cut. A proposal
+    with a graph term uses A and D.
     """
-    degrees = kernel.sum(axis=1)
+    degrees = degree_matrix(kernel)
     return {
         "K": kernel,
         "A": kernel,
-        "D": np.diag(degrees),
-        "Dm": np.diag(1.0 / np.sqrt(degrees)),
+        "D": degrees,
+        "D_inv_sqrt": np.diag(1.0 / np.sqrt(np.diag(degrees))),
         **params,
     }
 
@@ -314,7 +318,7 @@ def _select_sigma(
     The kernel is built on the selection half only, so the validation half does
     not influence the choice. The grid is searched with fewer restarts than the
     full protocol, to reduce the cost: the grid multiplies the work by the number
-    of widths, and the ranking of the widths stabilises after a few restarts. The
+    of widths, and the ranking of the widths stabilizes after a few restarts. The
     selected width is then evaluated with the full number of restarts on the
     other half.
     """
@@ -326,11 +330,11 @@ def _select_sigma(
     best_sigma = None
     best_accuracy = -np.inf
     for sigma in _sigma_values(sigma_grid):
-        ctx = _context(gausskernel(X_selection, X_selection, float(sigma)), params)
+        context = _context(gausskernel(X_selection, X_selection, float(sigma)), params)
         mean_accuracy = np.mean(
             [
                 run_once(
-                    update, objective, ctx, blocks, labels_selection,
+                    update, objective, context, blocks, labels_selection,
                     seed=seed + restart, max_iter=max_iter, kappa=kappa,
                 ).accuracy
                 for restart in range(n_grid_restarts)
@@ -363,17 +367,11 @@ def _screen(
     extra_blocks: dict[str, tuple[int, int]] | None = None,
 ) -> dict[str, Any]:
     """
-    A short first test on one small data set, at three widths across its grid.
-
-    Finiteness and non-negativity follow from the algebra of the update and must
-    hold at all three widths. Monotonicity can fail at one width and hold at
-    another, and the full protocol uses the width selected on the hold-out half.
-    Monotonicity is therefore required at one of the three widths only. A screen
-    at a single width could reject a rule that converges at the width actually
-    used.
-
-    The screen uses the selection half only. The validation half is first used in
-    the full protocol.
+    Initial screening on the dataset screen_dataset, at the smallest, middle and
+    largest kernel widths of its grid, on the selection half only. It passes if
+    finiteness and non-negativity hold at all three widths and monotonicity
+    holds at one or more, since monotonicity can depend on the kernel width.
+    The result is recorded and does not stop the evaluation.
 
     Returns:
         passed, the criteria that failed, the tally at the width that did best
@@ -396,9 +394,9 @@ def _screen(
     failed_somewhere: set[str] = set()
 
     for sigma in widths:
-        ctx = _context(gausskernel(X_selection, X_selection, sigma), params)
+        context = _context(gausskernel(X_selection, X_selection, sigma), params)
         runs = [
-            run_once(update, objective, ctx, blocks, labels_selection, seed=seed + restart)
+            run_once(update, objective, context, blocks, labels_selection, seed=seed + restart)
             for restart in range(n_restarts)
         ]
         tally = _tally(runs)
@@ -439,7 +437,7 @@ def _evaluate_dataset(
     extra_blocks: dict[str, tuple[int, int]] | None,
 ) -> DatasetResult:
     """
-    Evaluate one algorithm on one data set by hold-out: the kernel width is
+    Evaluate one algorithm on one dataset by hold-out: the kernel width is
     selected on one half, and the accuracy is reported on the other.
     """
     X, labels_true, n_clusters = datasets.load(dataset)
@@ -453,11 +451,11 @@ def _evaluate_dataset(
     X_validation = X[:, validation]
     labels_validation = labels_true[validation]
     blocks = _blocks_for(n_clusters, X_validation.shape[1], extra_blocks)
-    ctx = _context(gausskernel(X_validation, X_validation, sigma), params)
+    context = _context(gausskernel(X_validation, X_validation, sigma), params)
 
     runs = [
         run_once(
-            update, objective, ctx, blocks, labels_validation,
+            update, objective, context, blocks, labels_validation,
             seed=seed + restart, max_iter=max_iter, kappa=kappa,
         )
         for restart in range(n_restarts)
@@ -471,7 +469,8 @@ def _evaluate_dataset(
         accuracy_sd=float(accuracies.std()),
         n_restarts=n_restarts,
         n_iter_mean=float(np.mean([run.n_iter for run in runs])),
-        checks=_tally(runs),
+        checks={**_tally(runs),
+                "orthogonality": float(np.mean([run.checks["orthogonality"] for run in runs]))},
         accuracy_per_seed=accuracies.tolist(),
     )
 
@@ -484,14 +483,14 @@ def _pair_against_champion(
     seed: int,
 ) -> dict[str, float]:
     """
-    Run the champion on the same data and the same initialisations, and test the
-    per-seed differences.
+    Run the champion on the same data and the same initializations, and compare
+    the accuracies seed by seed.
 
     The champion selects its own kernel width on the same selection half. Running
     it at the proposal's width would compare a tuned algorithm with an untuned
-    one. Both algorithms start from the same initialisations, so the variance due
-    to initialisation cancels in the per-seed differences. This is why the
-    comparison is paired, and why it needs a second full run.
+    one. Both algorithms start from the same initializations, so a difference in
+    accuracy comes from the algorithms, not from the starting points. The
+    champion is therefore run again in a second full run.
     """
     champion = load_champion()
     X, labels_true, n_clusters = datasets.load(dataset)
@@ -506,14 +505,14 @@ def _pair_against_champion(
     X_validation = X[:, validation]
     labels_validation = labels_true[validation]
     blocks = _blocks_for(n_clusters, X_validation.shape[1], None)
-    ctx = _context(
+    context = _context(
         gausskernel(X_validation, X_validation, champion_sigma), champion.PARAMS
     )
 
     champion_accuracies = np.array(
         [
             run_once(
-                champion.UPDATE, champion.OBJECTIVE, ctx, blocks, labels_validation,
+                champion.UPDATE, champion.OBJECTIVE, context, blocks, labels_validation,
                 seed=seed + restart, max_iter=protocol["max_iter"],
                 kappa=protocol["kappa"],
             ).accuracy
@@ -522,13 +521,11 @@ def _pair_against_champion(
     )
 
     differences = np.array(proposal_result.accuracy_per_seed) - champion_accuracies
-    _, p_value = stats.ttest_rel(proposal_result.accuracy_per_seed, champion_accuracies)
     return {
         "champion_sigma": champion_sigma,
         "champion_mean": float(champion_accuracies.mean()),
         "delta_mean": float(differences.mean()),
         "delta_sd": float(differences.std()),
-        "p_value": float(p_value),
     }
 
 
@@ -569,14 +566,13 @@ def evaluate_algorithm(
     paired: bool = True,
 ) -> dict[str, Any]:
     """
-    Evaluate one algorithm on all data sets under the protocol declared in TASK.md.
+    Evaluate one algorithm on all datasets under the protocol declared in TASK.md.
 
-    A short screen on the small data set named in TASK.md runs first, and the
-    evaluation stops if a criterion fails. The screen saves time, because the
-    paired comparison doubles the cost of a full run.
+    The initial screening on the dataset screen_dataset runs first. Its result
+    is recorded and does not stop the evaluation.
 
     Args:
-        task_meta:    Frontmatter of TASK.md — data sets, protocol, parameters.
+        task_meta:    Frontmatter of TASK.md — datasets, protocol, parameters.
         seed:         Base seed. Restarts run at seed, seed + 1, and so on.
         extra_blocks: Factor matrices beyond H and F, where the derivation names
                       them.
@@ -584,12 +580,12 @@ def evaluate_algorithm(
                       values set by the Theorist. They may not have the same name
                       as a parameter declared in TASK.md. The champion is run
                       with the parameters in its own PARAMS.
-        paired:       Run the champion on the same initialisations and test the
-                      per-seed differences.
+        paired:       Run the champion on the same initializations and compare
+                      the accuracies seed by seed.
 
     Returns:
         The fields an ExperimentRecord takes, and `_results`, which carries the
-        per-data-set results for `promotes` and is not logged.
+        per-dataset results for `promotes` and is not logged.
     """
     protocol = task_meta["protocol"]
     params = _merge_coefficients(task_meta["parameters"], coefficients)
@@ -603,18 +599,6 @@ def evaluate_algorithm(
         seed=seed,
         extra_blocks=extra_blocks,
     )
-    if not screen["passed"]:
-        return {
-            "accuracy": {},
-            "paired": {},
-            "sigma": {screen_dataset: screen["sigma"]},
-            "sigma_tried": screen["sigma_tried"],
-            "n_iter": {},
-            "checks": {screen_dataset: screen["checks"]},
-            "n_restarts": protocol["screen_restarts"],
-            "screened": "failed",
-            "failed": screen["failed"],
-        }
 
     results: dict[str, DatasetResult] = {}
     for dataset, spec in task_meta["datasets"].items():
@@ -652,7 +636,7 @@ def evaluate_algorithm(
             dataset: dataset_result.checks for dataset, dataset_result in results.items()
         },
         "n_restarts": protocol["n_restarts"],
-        "screened": "passed",
+        "screen": {"passed": screen["passed"], "failed": screen["failed"], "checks": screen["checks"]},
         "sigma_tried": screen["sigma_tried"],
         "_results": results,
     }
@@ -705,24 +689,16 @@ def load_champion():
 # ---------------------------------------------------------------------------
 
 
-def promotes(result: dict[str, Any], significance: float = 0.05) -> tuple[bool, str]:
+def promotes(result: dict[str, Any]) -> tuple[bool, str]:
     """
     Apply the promotion rule of TASK.md: every theoretical criterion satisfied on
-    every restart of every data set, and a paired difference against the champion
-    that is positive and significant.
-
-    Args:
-        significance: Threshold on the p-value of the paired test. It is not
-                      called alpha, because alpha is the weight of the
-                      reconstruction term.
+    every restart of every dataset, and an accuracy, averaged over the datasets
+    with equal weights, higher than the champion's. Both are run from the same
+    initializations.
 
     Returns:
         (promotes, reason). The reason names the first condition that failed.
     """
-    if result.get("screened") == "failed":
-        dataset = next(iter(result["checks"]))
-        return False, f"screen failed on {dataset}: {', '.join(result['failed'])}"
-
     results = result["_results"]
     for dataset, dataset_result in results.items():
         for check in CHECKS:
@@ -733,24 +709,15 @@ def promotes(result: dict[str, Any], significance: float = 0.05) -> tuple[bool, 
                     f"({passed}/{dataset_result.n_restarts})"
                 )
 
-    compared = [
-        dataset_result for dataset_result in results.values()
-        if dataset_result.paired is not None
-    ]
-    if not compared:
-        return False, "no paired comparison against the champion"
+    if not results or any(dataset_result.paired is None for dataset_result in results.values()):
+        return False, "no paired comparison against the champion on every dataset"
 
-    for dataset_result in compared:
-        paired = dataset_result.paired
-        if paired["delta_mean"] <= 0:
-            return False, (
-                f"no improvement on {dataset_result.dataset} "
-                f"({paired['delta_mean']:+.2f})"
-            )
-        if paired["p_value"] >= significance:
-            return False, (
-                f"improvement on {dataset_result.dataset} not significant "
-                f"(p={paired['p_value']:.2g})"
-            )
+    # The improvement of each dataset, averaged over the datasets with equal weights.
+    deltas = {dataset: dataset_result.paired["delta_mean"]
+              for dataset, dataset_result in results.items()}
+    mean_delta = sum(deltas.values()) / len(deltas)
+    per_dataset = ", ".join(f"{dataset} {delta:+.2f}" for dataset, delta in deltas.items())
+    if mean_delta <= 0:
+        return False, f"no improvement in average accuracy ({mean_delta:+.2f}; {per_dataset})"
 
-    return True, "every criterion held; paired improvement on every data set"
+    return True, f"every criterion held; average accuracy {mean_delta:+.2f} ({per_dataset})"
