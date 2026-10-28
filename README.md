@@ -13,14 +13,17 @@ SI-Scientist is a multi-agent LLM team for algorithm discovery, based on:
 ## Agent architecture
 
 The team has four agents: a Theorist, an Analyst, an Evaluator and an Observer. They run one at a
-time and exchange information only through files in a shared run directory. 
+time and exchange information only through files in a shared run directory.
 
 ### Theorist agent
 
-The Theorist reads the current champion algorithm, the dead-end log and the experiment log. It then:
+The Theorist reads the current champion algorithm, the rejected proposals and the experiment log.
+It then:
 
-- **Proposes** one new objective function. For each term, it states where the term comes from,
-  which term balances it, and the value of any new coefficient.
+- **Proposes** one new objective function. For each optimization term, it states where the term
+  comes from and which term balances it, and for a new term it sets the value of its weight.
+- **States the theoretical criteria**: why the objective satisfies non-negativity, monotonicity
+  and finiteness.
 - **Checks novelty** by searching the literature. It classifies the proposal as *novel*,
   *published* or *adjacent* (published in a different setting), and records the search queries.
 
@@ -36,15 +39,15 @@ Analyst then records a refusal.
 
 ### Evaluator agent
 
-The Evaluator implements the pseudocode, evaluates it on all data sets with a single call to
-`evaluate_algorithm`, and records both the result and the random seed in `logs/experiments.jsonl`. It
-then applies the promotion rule.
+The Evaluator implements the pseudocode, evaluates it on all datasets with a single call to
+`evaluate_algorithm`, and records both the result and the random seed in `logs/experiments.jsonl`.
+It then applies the promotion rule.
 
 ### Observer agent
 
 The Observer reads all logs and writes an audit of the run: what was proposed, derived, refused and
-evaluated, and whether each agent stayed within its role. It reports first
-any proposal that improved accuracy but failed a theoretical criterion.
+evaluated, and whether each agent stayed within its role. It reports first any proposal that
+improved accuracy but failed a theoretical criterion.
 
 ### The loop
 
@@ -53,7 +56,7 @@ Theorist         proposes an objective, establishes novelty
     |
 Analyst          derives the update rules, writes pseudocode
     |
-Evaluator        implements, evaluates, logs, applies the gate
+Evaluator        implements, evaluates, logs, applies the promotion rule
     |
 Observer         audits the run
     |
@@ -64,17 +67,17 @@ In each cycle, every agent first checks whether it has work. An agent with no wo
 
 ---
 
-## The protocol parameters
+## The evaluation parameters
 
 The evaluation protocol is defined in `task-nmf/TASK.md`:
 
 - `alpha`, `mu`: the weights of the reconstruction and orthogonality terms in the champion's
   objective
-- `n_restarts`: the number of random initialisations; `seed`: the seed of the first initialisation
+- `n_restarts`: the number of random initializations; `seed`: the seed of the first initialization
 - `max_iter`, `kappa`: the maximum number of iterations and the tolerance of the stopping rule
-- `sigma_grid`: the kernel widths searched for each data set
+- `sigma_grid`: the kernel widths searched for each dataset
 
-Agents do not choose or tune these parameters. To change the protocol, edit `TASK.md`.
+Agents do not choose or tune these parameters. To change the evaluation protocol, edit `TASK.md`.
 
 ---
 
@@ -90,11 +93,11 @@ Every evaluated rule is checked against theoretical criteria on every restart:
 Monotonicity is checked numerically on the objective that the Analyst supplies, so the same check
 applies to any proposal.
 
-A proposal becomes the new champion if all three criteria hold on every restart of every data set
-and its accuracy is significantly higher than the champion's (paired test over the same
-initialisations, p < 0.05). Each algorithm selects its own kernel width. A proposal that fails a
-criterion is not promoted, even if its accuracy is higher. It is recorded in the dead-end log under
-the name of the failed criterion.
+A proposal becomes the new champion if all three criteria hold on every restart of every dataset
+and its accuracy, averaged over the datasets with equal weights, is higher than the champion's.
+Both are run from the same initializations, and each selects its own kernel width. A proposal that
+fails a criterion is rejected even if its accuracy is higher. The reason for each rejection is
+recorded.
 
 ---
 
@@ -110,8 +113,8 @@ cd ../my-run
 # then follow runbook.md
 ```
 
-`selftest.py` checks the environment, checks that the protocol is implemented as specified, and
-checks that the scorer rejects rules that fail a criterion.
+`selftest.py` tests the code: the environment, the data loading, the implementation of the
+evaluation protocol, the champion and the promotion rule.
 
 `launch.py` creates a self-contained run directory. It contains copies of the system files, the
 scorer, the data, the champion and the task, and one instruction file per agent,
@@ -119,6 +122,10 @@ scorer, the data, the champion and the task, and one instruction file per agent,
 
 `runbook.md` contains the instructions for the orchestrator, the session that starts the four
 agents in order and checks the exit condition.
+
+The agents are run with Claude Code. To start a run, open `runbook.md` in a Claude Code session in
+the run directory. This orchestrator session starts each agent with its `HEARTBEAT-<role>.md` file,
+and the agents communicate only through the files in the run directory.
 
 To evaluate the champion without running the agents, run this from a run directory:
 
@@ -141,8 +148,8 @@ print(result["accuracy"])
 `champion/champion.json` contains the objective of the current champion and the derivation of its
 update rules. The Theorist reads both files before proposing a change.
 
-The initial champion algorithm is kernel non-negative spectral clustering with the ratio cut (KNSC-Rcut). The
-file also contains the normalized-cut version (KNSC-Ncut) for reference.
+The initial champion algorithm is kernel non-negative spectral clustering with the ratio cut
+(KNSC-Rcut). The file also contains the normalized-cut version (KNSC-Ncut) for reference.
 
 ---
 
@@ -152,10 +159,10 @@ Datasets are CSV files with a header row, one point per row and the class label 
 column. After loading, points are stored as columns, so X has size m × n for m dimensions and n
 points.
 
-`TASK.md` declares two data sets in the plane: the synthetic dataset used in the published
-experiments, and two interleaved half-circles generated from a fixed seed. 
+`task-nmf/TASK.md` declares two datasets of two-dimensional points: the synthetic dataset used in
+the published experiments, and two interleaved half-circles generated from a fixed seed.
 
-The six real data sets used in the original paper are available from the [UCI Machine Learning
+The six real datasets used in the original paper are available from the [UCI Machine Learning
 Repository](https://archive.ics.uci.edu/) and through [OpenML](https://www.openml.org/).
 
 ---
@@ -174,12 +181,6 @@ scorer/run_algorithm.py    evaluates one proposed algorithm
 scorer/knsc.py             kernel, degree matrix, cluster labels, accuracy
 scorer/datasets.py         data loading
 champion/                  the current best: its code and its record
-task-nmf/TASK.md           the protocol
-data/                      clustering data sets
+task-nmf/TASK.md           the evaluation protocol
+data/                      clustering datasets
 ```
-
----
-
-## Extensions
-
-Extensions: the concurrent configuration in which several agents deliberate over the same task across long horizons.
