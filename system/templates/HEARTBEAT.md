@@ -24,8 +24,8 @@ from pathlib import Path
 
 RUN_ROOT = Path(".")            # this file sits in the run directory
 sys.path.insert(0, str(RUN_ROOT))
-from system.helper import (DeadEndRecord, DerivationRecord, ExperimentRecord,
-                           FolderState, ObjectiveProposal, SessionRecord, proposal_id)
+from system.helper import (DerivationRecord, ExperimentRecord, FolderState,
+                           ObjectiveProposal, RejectionRecord, SessionRecord, proposal_id)
 
 state = FolderState(RUN_ROOT)
 ```
@@ -43,15 +43,15 @@ meta, body = state.read_task()       # TASK.md parameters and description
 experiments = state.read_experiments()
 ```
 
-The Theorist also reads the champion and the dead-end log, because each new
+The Theorist also reads the champion and the rejection log, because each new
 proposal starts from them:
 
 ```python
-champion = state.read_champion()     # objective, derivation, module
-closed   = state.read_dead_ends()    # rejected proposals and the classes they rule out
+champion = state.read_champion()    # objective, derivation, module
+closed   = state.read_rejections()  # rejected proposals and the classes they rule out
 ```
 
-`meta` contains every fixed parameter of the run: the data sets, the metric, the
+`meta` contains every fixed parameter of the run: the datasets, the metric, the
 number of restarts, the kernel-width grids and the promotion rule. **Read these
 values from `meta` and do not hardcode them.** The user sets them. A different
 protocol requires a new task file, not a code change.
