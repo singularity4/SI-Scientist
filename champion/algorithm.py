@@ -1,6 +1,6 @@
 """
 The current champion in the form the scorer expects: an `update` and an
-`objective` function for each algorithm, both with arguments (state, ctx).
+`objective` function for each algorithm, both with arguments (state, context).
 
 This file is overwritten when a proposal is promoted. It is the only code in a
 run that changes, so it is kept in champion/ next to the champion record, and
@@ -30,11 +30,11 @@ PARAMS = {"alpha": 10.0, "mu": 100.0}
 
 # The orthogonality terms have the factor 2*mu in the update rules and mu in the
 # objective. A rule written with mu instead of 2*mu uses half the stated
-# orthogonality weight, and would minimise a different objective from the one the
+# orthogonality weight, and would minimize a different objective from the one the
 # scorer evaluates.
 
 
-def update_rcut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> dict[str, np.ndarray]:
+def update_rcut(state: dict[str, np.ndarray], context: dict[str, Any]) -> dict[str, np.ndarray]:
     """
     One iteration of KNSC-Rcut.
 
@@ -42,7 +42,7 @@ def update_rcut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> dict[str, 
     to the positive part of its gradient, as obtained from the KKT conditions.
     """
     H, F = state["H"], state["F"]
-    K, alpha, mu = ctx["K"], ctx["alpha"], ctx["mu"]
+    K, alpha, mu = context["K"], context["alpha"], context["mu"]
 
     negative_part = alpha * (F.T @ K) + 2 * mu * H
     positive_part = alpha * (F.T @ K @ F @ H) + 2 * mu * (H @ H.T) @ H
@@ -54,7 +54,7 @@ def update_rcut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> dict[str, 
     return {"H": H, "F": F}
 
 
-def objective_rcut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> float:
+def objective_rcut(state: dict[str, np.ndarray], context: dict[str, Any]) -> float:
     """
     The objective, evaluated through the kernel:
 
@@ -64,40 +64,41 @@ def objective_rcut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> float:
     feature map is never needed explicitly.
     """
     H, F = state["H"], state["F"]
-    K, alpha, mu = ctx["K"], ctx["alpha"], ctx["mu"]
+    K, alpha, mu = context["K"], context["alpha"], context["mu"]
     fidelity = np.trace(K) - 2 * np.trace(H.T @ F.T @ K) + np.trace(H.T @ F.T @ K @ F @ H)
     orthogonality = np.linalg.norm(H @ H.T - np.eye(H.shape[0]), "fro") ** 2
     return float(alpha * fidelity + mu * orthogonality)
 
 
-def update_ncut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> dict[str, np.ndarray]:
+def update_ncut(state: dict[str, np.ndarray], context: dict[str, Any]) -> dict[str, np.ndarray]:
     """
     One iteration of KNSC-Ncut.
 
     Differs from Rcut only by the scaling D^(-1/2). D is fixed, so its inverse
-    square root is taken from ctx rather than recomputed inside the loop.
+    square root is taken from the context rather than recomputed inside the loop.
     """
     Z, F = state["H"], state["F"]
-    K, alpha, mu = ctx["K"], ctx["alpha"], ctx["mu"]
-    Dm = ctx["Dm"]
-    KD = K @ Dm
+    K, alpha, mu = context["K"], context["alpha"], context["mu"]
+    D_inv_sqrt = context["D_inv_sqrt"]
+    K_scaled = K @ D_inv_sqrt
 
-    negative_part = alpha * (F.T @ KD) + 2 * mu * Z
+    negative_part = alpha * (F.T @ K_scaled) + 2 * mu * Z
     positive_part = alpha * (F.T @ K @ F @ Z) + 2 * mu * (Z @ Z.T) @ Z
     Z = Z * negative_part / np.maximum(positive_part, EPS)
 
-    negative_part = KD @ Z.T
+    negative_part = K_scaled @ Z.T
     positive_part = K @ F @ Z @ Z.T
     F = F * negative_part / np.maximum(positive_part, EPS)
     return {"H": Z, "F": F}
 
 
-def objective_ncut(state: dict[str, np.ndarray], ctx: dict[str, Any]) -> float:
+def objective_ncut(state: dict[str, np.ndarray], context: dict[str, Any]) -> float:
     """The Ncut objective: the data is scaled by D^(-1/2)."""
     Z, F = state["H"], state["F"]
-    K, alpha, mu, Dm = ctx["K"], ctx["alpha"], ctx["mu"], ctx["Dm"]
-    KD = Dm @ K @ Dm
-    fidelity = np.trace(KD) - 2 * np.trace(Z.T @ F.T @ K @ Dm) + np.trace(Z.T @ F.T @ K @ F @ Z)
+    K, alpha, mu, D_inv_sqrt = context["K"], context["alpha"], context["mu"], context["D_inv_sqrt"]
+    K_normalized = D_inv_sqrt @ K @ D_inv_sqrt
+    fidelity = (np.trace(K_normalized) - 2 * np.trace(Z.T @ F.T @ K @ D_inv_sqrt)
+                + np.trace(Z.T @ F.T @ K @ F @ Z))
     orthogonality = np.linalg.norm(Z @ Z.T - np.eye(Z.shape[0]), "fro") ** 2
     return float(alpha * fidelity + mu * orthogonality)
 
