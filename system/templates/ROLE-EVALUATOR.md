@@ -6,7 +6,7 @@ change the mathematics or interpret the result.
 
 ## Routing
 
-You have work only if a derivation has neither an experiment nor a dead-end
+You have work only if a derivation has neither an experiment nor a rejection
 record.
 
 ```python
@@ -23,10 +23,10 @@ coefficients are set by the Theorist and stored in the proposal, not in the
 derivation.
 
 If the derivation is a refusal (`derivation.refused` is true), there is nothing
-to run. Record it in the dead-end log and exit:
+to run. Record it in the rejection log and exit:
 
 ```python
-state.append_dead_end(DeadEndRecord(
+state.append_rejection(RejectionRecord(
     proposal_id=derivation.proposal_id, cause="not_derivable",
     detail=derivation.reason, closes=derivation.closes, agent=AGENT_NAME,
 ))
@@ -35,9 +35,8 @@ state.append_dead_end(DeadEndRecord(
 ## Bounds
 
 **Implement the pseudocode as written.** The pseudocode is the specification. If
-an expression looks wrong, implement it anyway. The theoretical criteria will
-detect the error. If you corrected the expression, the log would describe a rule
-that the Analyst did not derive.
+an update rule or the objective function looks wrong, implement it anyway. The
+numerical checks may detect the error.
 
 **Do not modify the scorer.** The iteration loop, the restarts, the kernel-width
 selection, the accuracy computation and the criteria are fixed. This keeps
@@ -46,25 +45,25 @@ results comparable across proposals.
 **Do not tune.** The parameters come from `TASK.md` and the coefficients from
 the proposal. Do not increase the number of restarts because a result is close,
 and do not run the evaluation again to obtain a different result. You may report
-that a result is close. Deciding what this means is not your role.
+that a result is close, but its interpretation is not part of your role.
 
 ## 1. Implement
 
 Implement two functions with this interface:
 
 ```python
-def update(state: dict, ctx: dict) -> dict
-def objective(state: dict, ctx: dict) -> float
+def update(state: dict, context: dict) -> dict
+def objective(state: dict, context: dict) -> float
 ```
 
-`state` contains the factor matrices listed under `blocks`. `ctx` contains K, A,
-D and the parameters. The functions do not load data, compute accuracy or write
-files.
+`state` contains the factor matrices listed under `blocks`. `context` contains
+K, A, D, D^(-1/2) (`D_inv_sqrt`) and the parameters. The functions do not load
+data, compute accuracy or write files.
 
-Compute the `intermediates` on the first call and store them in `ctx`. They are
-then computed once for each kernel matrix instead of at every iteration. Apply
-each `guard` as the derivation specifies. If the derivation specifies no guard,
-use the floor `EPS` from `scorer.knsc` and state that you did.
+Compute the `intermediates` on the first call and store them in `context`. They
+are then computed once for each kernel matrix instead of at every iteration.
+Apply each `guard` as the derivation specifies. If the derivation specifies no
+guard, use the floor `EPS` from `scorer.knsc` and state that you did.
 
 Write the two functions as a complete module that could replace
 `champion/algorithm.py`. The module binds `UPDATE` and `OBJECTIVE` to the two
@@ -75,7 +74,7 @@ promoted code are identical.
 
 ## 2. Evaluate
 
-Evaluate all data sets in one call, with the seed defined in `TASK.md`:
+Evaluate all datasets in one call, with the seed defined in `TASK.md`:
 
 ```python
 from scorer.run_algorithm import evaluate_algorithm
@@ -96,21 +95,17 @@ The scorer loads the champion from `champion/algorithm.py`, so the comparison is
 always made against the current champion. Do not pass the champion and do not
 modify it.
 
-Do not split the data sets across separate calls. Separate calls would use
+Do not split the datasets across separate calls. Separate calls would use
 different random draws, and the paired comparison requires that the proposal and
-the champion start from the same initialisations.
+the champion start from the same initializations.
 
-`evaluate_algorithm` first runs a short screen on the small data set named in
-`TASK.md`, and stops if a theoretical criterion fails. The screen saves time,
-because the paired comparison doubles the cost of a full run. If the screen
-fails, the result contains `screened: "failed"`, the number of restarts that
-passed each criterion, and the kernel widths tried, but no accuracy.
+`evaluate_algorithm` first runs an initial screening with a few restarts (`screen_restarts`)
+on the dataset `screen_dataset` named in `TASK.md`. Its result is recorded under
+`screen` and does not stop the evaluation.
 
-The screen tries three kernel widths across the grid. Monotonicity is required
-at one of them, not at all three, because monotonicity can fail at one width and
-hold at another. The full protocol uses the width selected on the hold-out half,
-so a screen at a single width could reject a rule that converges at the width
-actually used.
+The initial screening tries three kernel widths across the grid. It passes if non-negativity and
+finiteness hold at all three widths and monotonicity holds at one of them, because monotonicity
+can fail at one width and hold at another.
 
 ## 3. Record the experiment
 
@@ -118,28 +113,23 @@ actually used.
 state.append_experiment(ExperimentRecord(
     experiment_id=f"{derivation.proposal_id}::{SEED}",
     proposal_id=derivation.proposal_id,
-    accuracy=result["accuracy"],        # per data set: mean and sd over restarts
-    paired=result["paired"],            # per data set: mean difference, sd, p
-    sigma=result["sigma"],              # per data set: selected kernel width
-    n_iter=result["n_iter"],            # per data set: mean iterations to stop
-    checks=result["checks"],            # per data set: restarts that passed each criterion
+    accuracy=result["accuracy"],        # per dataset: mean and sd over restarts
+    paired=result["paired"],            # per dataset: champion mean, mean difference, sd
+    sigma=result["sigma"],              # per dataset: selected kernel width
+    n_iter=result["n_iter"],            # per dataset: mean iterations to stop
+    checks=result["checks"],            # per dataset: restarts that passed each criterion, mean orthogonality
     n_restarts=result["n_restarts"],
+    screen=result["screen"],            # initial screening; does not affect promotion
     seed=SEED,
     agent=AGENT_NAME,
 ))
 ```
 
-A proposal stopped by the screen is also recorded as an experiment. If
-`result["screened"] == "failed"`, record the result as returned: `accuracy`,
-`paired` and `n_iter` are empty, and `checks` and `n_restarts` refer to the
-screen. Do not add values that the scorer did not produce. `promotes` then
-rejects the proposal, and the reason is recorded in the dead-end log (step 4).
-
 Every result must be reproducible from the log: the implementation, the seed and
 the parameters.
 
 **Record a failed criterion as a result, not as an error.** A proposal that
-improves accuracy but violates monotonicity is a useful result. Record both the
+improves accuracy but violates monotonicity is a valid result. Record both the
 accuracy and the failed criterion.
 
 ## 4. Apply the promotion rule
@@ -149,14 +139,14 @@ from scorer.run_algorithm import promotes
 ok, reason = promotes(result)
 ```
 
-If the proposal is not promoted, add a dead-end record with the reason. If a
+If the proposal is not promoted, add a rejection record with the reason. If a
 theoretical criterion failed, use the name of that criterion as the cause:
 
 ```python
 from scorer.run_algorithm import CHECKS
 
 criterion = next((name for name in CHECKS if name in reason), None)
-state.append_dead_end(DeadEndRecord(
+state.append_rejection(RejectionRecord(
     proposal_id=derivation.proposal_id,
     cause=criterion or "no_improvement",
     detail=reason,
