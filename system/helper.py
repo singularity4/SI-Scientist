@@ -8,15 +8,15 @@ Files in a run directory:
     logs/proposals.jsonl       one line per objective the Theorist proposed
     logs/derivations.jsonl     one line per derivation, including refusals
     logs/experiments.jsonl     one line per algorithm evaluated
-    logs/dead-ends.jsonl       one line per rejected proposal, with the cause
+    logs/rejections.jsonl      one line per rejected proposal, with the cause
     logs/sessions.jsonl        one line per agent cycle
     champion/champion.json     the current best, overwritten on promotion
     task/TASK.md               the task, copied in by launch.py
     task-profile.md            settings, copied from LAUNCH.md
 
-The logs are append-only. A proposal is complete when a derivation or a dead-end
+The logs are append-only. A proposal is complete when a derivation or a rejection
 record with the same `proposal_id` exists. A derivation is complete when an
-experiment or a dead-end record with that id exists. No record is deleted, so a
+experiment or a rejection record with that id exists. No record is deleted, so a
 run can be resumed at any point and its full history is kept.
 
 The champion files are the exception. They are overwritten on promotion, because
@@ -44,7 +44,7 @@ def _now() -> str:
 def proposal_id(objective: str) -> str:
     """
     Stable identifier for a proposed objective: a content hash of the objective
-    as stated, normalised for whitespace.
+    as stated, normalized for whitespace.
 
     Two proposals with the same text therefore get the same identifier. This is
     intended, because the second proposal is a duplicate of the first.
@@ -65,11 +65,12 @@ class ObjectiveProposal:
 
     Attributes:
         proposal_id:  Content hash of the objective.
-        objective:    The objective in full, as a minimisation problem with its
+        objective:    The objective in full, as a minimization problem with its
                       constraints.
         changed:      Which part of the champion this replaces, and why it should
                       help on this data.
-        theory:       The origin of each term, and the term that balances it.
+        theory:       The origin of each term, the term that balances it, and why
+                      the theoretical criteria hold.
                       For example, a penalty term without an opposing term can
                       drive a factor matrix to zero.
         coefficients: The trade-off coefficients this objective introduces, with
@@ -149,20 +150,22 @@ class ExperimentRecord:
     Attributes:
         experiment_id: Unique id for this evaluation.
         proposal_id:   Which proposal.
-        accuracy:      Per data set, the mean and standard deviation of the
-                       clustering accuracy over restarts. Empty if screened out.
-        paired:        Per data set, the comparison against the champion run
-                       from the same initialisations. Empty if screened out
-                       before the paired protocol.
-        sigma:         Per data set, the kernel width selected on the hold-out.
-        n_iter:        Per data set, the mean number of iterations to stop.
-        checks:        Per data set, how many restarts satisfied each
-                       theoretical criterion. Reported per data set, because a
-                       rule can satisfy a criterion on one data set and fail it
-                       on another.
+        accuracy:      Per dataset, the mean and standard deviation of the
+                       clustering accuracy over restarts.
+        paired:        Per dataset, the comparison against the champion run
+                       from the same initializations.
+        sigma:         Per dataset, the kernel width selected on the hold-out.
+        n_iter:        Per dataset, the mean number of iterations to stop.
+        checks:        Per dataset, how many restarts satisfied each
+                       theoretical criterion, and the mean orthogonality of H.
+                       Reported per dataset, because a rule can satisfy a
+                       criterion on one dataset and fail it on another.
         n_restarts:    Size of the ensemble.
         seed:          Base seed, so the result is reproducible.
         agent:         Which Evaluator produced it.
+        screen:        The result of the initial screening: whether it passed, the
+                       criteria that failed, and the restarts that passed each
+                       criterion. It does not affect promotion.
     """
 
     experiment_id: str
@@ -175,11 +178,12 @@ class ExperimentRecord:
     n_restarts: int
     seed: int
     agent: str
+    screen: dict[str, Any] = field(default_factory=dict)
     recorded_at: str = field(default_factory=_now)
 
 
 @dataclass
-class DeadEndRecord:
+class RejectionRecord:
     """
     A rejected proposal and the reason for its rejection.
 
@@ -238,14 +242,14 @@ class FolderState:
 
     # -- setup --------------------------------------------------------------
 
-    def initialise(self) -> None:
+    def initialize(self) -> None:
         """Create the log directory and its empty logs. Calling it again has no effect."""
         self.logs.mkdir(parents=True, exist_ok=True)
         for name in (
             "proposals.jsonl",
             "derivations.jsonl",
             "experiments.jsonl",
-            "dead-ends.jsonl",
+            "rejections.jsonl",
             "sessions.jsonl",
         ):
             (self.logs / name).touch(exist_ok=True)
@@ -257,7 +261,7 @@ class FolderState:
         """
         Read TASK.md.
 
-        The frontmatter contains the data sets, the protocol, the trade-off
+        The frontmatter contains the datasets, the protocol, the trade-off
         parameters and the promotion rule. The body describes the task. To change
         the protocol, edit TASK.md, not the code.
 
@@ -292,14 +296,14 @@ class FolderState:
 
     def pending_proposal(self) -> ObjectiveProposal | None:
         """
-        The oldest proposal without a derivation or a dead-end record, or None.
+        The oldest proposal without a derivation or a rejection record, or None.
 
         The Analyst uses this to decide whether it has work. A refusal counts as
         a derivation. A proposal that the Theorist recorded as published is not
         pending, because it is not derived.
         """
         derived = {record.proposal_id for record in self.read_derivations()}
-        closed = {record.proposal_id for record in self.read_dead_ends()}
+        closed = {record.proposal_id for record in self.read_rejections()}
         for proposal in self.read_proposals():
             if proposal.proposal_id not in derived and proposal.proposal_id not in closed:
                 return proposal
@@ -318,14 +322,14 @@ class FolderState:
 
     def pending_derivation(self) -> DerivationRecord | None:
         """
-        The oldest derivation without an experiment or a dead-end record, or None.
+        The oldest derivation without an experiment or a rejection record, or None.
 
         The Evaluator uses this to decide whether it has work. A refusal is
         returned like any other derivation. The Evaluator then records it in the
-        dead-end log instead of running it.
+        rejection log instead of running it.
         """
         evaluated = {record.proposal_id for record in self.read_experiments()}
-        closed = {record.proposal_id for record in self.read_dead_ends()}
+        closed = {record.proposal_id for record in self.read_rejections()}
         for derivation in self.read_derivations():
             if derivation.proposal_id not in evaluated and derivation.proposal_id not in closed:
                 return derivation
@@ -347,21 +351,21 @@ class FolderState:
         return [record for record in self.read_experiments()
                 if record.proposal_id == proposal_id]
 
-    # -- dead ends ----------------------------------------------------------
+    # -- rejections ---------------------------------------------------------
 
-    def append_dead_end(self, record: DeadEndRecord) -> None:
+    def append_rejection(self, record: RejectionRecord) -> None:
         """Append one rejection, with its cause."""
-        self._append(self.logs / "dead-ends.jsonl", record)
+        self._append(self.logs / "rejections.jsonl", record)
 
-    def read_dead_ends(self) -> list[DeadEndRecord]:
+    def read_rejections(self) -> list[RejectionRecord]:
         """
         Every rejection so far.
 
         The Theorist reads this before proposing. Records with a `closes` field
         rule out a whole class of objectives.
         """
-        return [DeadEndRecord(**record)
-                for record in self._read(self.logs / "dead-ends.jsonl")]
+        return [RejectionRecord(**record)
+                for record in self._read(self.logs / "rejections.jsonl")]
 
     # -- champion -----------------------------------------------------------
 
