@@ -32,6 +32,17 @@ data/
 logs/
 ```
 
+Open the shared state. You only read it:
+
+```python
+import sys
+from pathlib import Path
+RUN_ROOT = Path(".")
+sys.path.insert(0, str(RUN_ROOT))
+from system.helper import FolderState
+state = FolderState(RUN_ROOT)
+```
+
 PROFILE SETTING: `seeding_policy`
 
 ## 1. Cycle
@@ -41,12 +52,12 @@ PROFILE SETTING: `cycle_order`
 Each cycle handles one proposal, in four steps.
 
 **1a. Theorist.** Start the Theorist with `HEARTBEAT-theorist.md`. It reads the
-champion, the experiment log and the dead-end log, and adds one proposal.
+champion, the experiment log and the rejection log, and adds one proposal.
 
 If the Theorist declines to propose, the run is over. Go to step 3.
 
 If the Theorist found that its proposal is already published, it adds the
-proposal and a dead-end record. No derivation is needed. Go to step 1d.
+proposal and a rejection record. No derivation is needed. Go to step 1d.
 
 **1b. Analyst.** Start the Analyst with `HEARTBEAT-analyst.md`. It reads the
 pending proposal, derives the update rules, and adds one `DerivationRecord` with
@@ -61,11 +72,11 @@ objectives, the field `closes` describes that class.
 PROFILE SETTING: `evaluate_dispatch`
 
 Start the Evaluator with `HEARTBEAT-evaluator.md`. It reads the pending
-derivation, implements the pseudocode, and runs the screen and, if the screen
-passes, the full protocol. It then adds one `ExperimentRecord`.
+derivation, implements the pseudocode, and runs the initial screening and the
+full evaluation. It then adds one `ExperimentRecord`.
 
 If the derivation is a refusal, there is nothing to run. The Evaluator adds a
-dead-end record and exits.
+rejection record and exits.
 
 PROFILE SETTING: `champion_promotion`
 
