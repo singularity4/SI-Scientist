@@ -5,8 +5,8 @@ authors:
   - family-names: "Tolic"
     given-names: "Dijana"
     orcid: "https://orcid.org/0000-0003-1498-6686"
-version: 1.0.0
-date-released: 2026-11-20
+version: "1.0"
+date-released: 2026-11-19
 license: CC-BY-NC-4.0
 type: software
 repository-code: "https://github.com/singularity4/SI-Scientist"
