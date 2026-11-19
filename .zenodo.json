@@ -1,0 +1,14 @@
+{
+  "title": "SI-Scientist: Self-Improving Agent Teams for Scientific Research",
+  "upload_type": "software",
+  "description": "A self-improving multi-agent LLM team for scientific machine learning.",
+  "creators": [{"name": "Tolic, Dijana", "orcid": "0000-0003-1498-6686"}],
+  "license": "cc-by-nc-4.0",
+  "language": "eng",
+  "keywords": ["multi-agent systems", "large language models", "algorithm discovery",
+               "machine learning"],
+  "related_identifiers": [
+    {"identifier": "10.1016/j.patcog.2018.04.029", "relation": "references",
+     "scheme": "doi", "resource_type": "publication-article"}
+  ]
+}
