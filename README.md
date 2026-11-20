@@ -1,4 +1,4 @@
-# SI-Scientist: Self-Improving Agent Teams for Scientific Research
+# SI-Scientist: Self-Improving Agent Teams for Automated Scientific Discovery
 
 SI-Scientist is a multi-agent LLM team for algorithm discovery, based on:
 
